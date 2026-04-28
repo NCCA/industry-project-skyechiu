@@ -1,119 +1,64 @@
 # Depth Super-Resolution for 3DGS Face Reconstruction
 
-**Task**: 256×256 8-bit low-quality depth → 1024×1024 16-bit high-fidelity depth  
-Combined ×4 spatial upsampling + 8-bit → 16-bit dequantization on FaceLift 3DGS rendered depth maps.
+This is my MSc industry project. The goal is to take low-quality depth maps (256×256, 8-bit) from FaceLift's 3DGS face reconstruction and recover them to 1024×1024, 16-bit — basically ×4 spatial SR plus bit-depth recovery.
 
-## Key Findings
+I built the full pipeline from scratch: data collection, FaceLift inference, postprocessing, training, and evaluation. Everything runs on a single RTX 4070 Laptop (8 GB VRAM).
 
-1. **Rendering-induced degradation is a distinct SR setting** — 3DGS splat boundary + opacity fall-off + 8-bit quantization differs from standard bicubic+noise. Cross-test shows 3–6 dB PSNR gap between degradation types.
-2. **High PSNR ≠ good geometry** — PixelShuffle methods (EDSR, SRResNet, SGNet) achieve higher PSNR but produce checkerboard artifacts that destroy 3D surface quality. Our UNet achieves 35pp higher F-score despite similar PSNR.
-3. **Zone-aware evaluation** — Metrics computed only within face confidence cone (|yaw| ≤ 20°) to avoid contamination from FaceLift's side/back hallucination.
-4. **3DGS normals are unusable** — Per-splat aliasing confirmed by Normal-GS, 2DGS, SuGaR, DN-Splatter. Using DSINE (CVPR 2024) pseudo-GT instead.
+## What I found
 
-## Pipeline Overview
+The main finding is that 3DGS rendering degradation is different from the standard bicubic degradation that existing SR benchmarks assume. A 5×5 cross-degradation test shows up to 5.7 dB PSNR drop when you train on one type and test on the other. DORNet (CVPR 2025 SOTA) trained on NYU barely beats plain bicubic on our data.
 
-```
-Raw FFHQ ──► Crop+Align ──► Face 512×512 ──► FaceLift 3DGS ──► Renders 1024²
-                (white BG)                     (MVDiffusion      (RGB/D/N/O)
-                                                + GS-LRM)
-                                                    │
-                                                    ▼
-Raw Renders ──► Postprocess ──► Clean Maps ──► Dataset ──► LR 256 (8-bit)
-                (align/fill/                   1159/129     Face Mask
-                 normalize)                                 DSINE Normal
-                                                    │
-                                                    ▼
-LR 8-bit ──► Depth SR Model ──► SR Output ──► Zone Eval (PSNR/SSIM)
-+ HR 16-bit   (UNet/EDSR/       1024² 16-bit      │
-               SRResNet/SGNet)                     ▼
-                                            3D Mesh ──► F-score / Hausdorff
-```
+The other interesting result: pixel metrics (PSNR) don't tell the whole story. PixelShuffle-based methods (EDSR, SRResNet, SGNet) get higher PSNR than our UNet, but when you convert the depth to a 3D mesh, our UNet has an F-score of 0.999 vs their ~0.65. That's a 35 percentage-point gap that's completely invisible in PSNR.
 
-## Project Structure
+I also found that 3DGS-rendered normals can't be used as training supervision (per-splat aliasing makes them noisy). Using DSINE pseudo-GT normals instead works much better.
 
-```
-├── scripts/                     # Pipeline scripts (run in order)
-│   ├── download_dataset.py      # Step 1: Download FFHQ from Kaggle
-│   ├── prepare_images.py        # Step 2: rembg + face crop + white BG
-│   ├── batch_inference.py       # Step 3: FaceLift 3DGS inference
-│   ├── export_depth.py          # Step 4: Render depth/RGB/normal/opacity
-│   ├── build_dataset.py         # Step 5: Verify rendered outputs
-│   ├── verify_splat.py          # Step 6: Validate PLY integrity
-│   ├── postprocess_maps.py      # Step 7: Align, normalize, fill holes, smooth normals
-│   ├── run_postprocess.py       # Step 7 runner: Batch postprocess
-│   ├── make_face_masks.py       # Step 8: Morphology-based face masks
-│   ├── reorganize_dataset.py    # Step 9: 90/10 train/val split (seed=42)
-│   ├── make_lr_hr_pairs.py      # Step 10: HR 1024 16-bit → LR 256 8-bit
-│   ├── compute_dsine_normals.py # Step 11: DSINE pseudo-GT normals
-│   ├── train_depth_upres.py     # Step 12: Train DepthUpResUNet (our method)
-│   ├── train_sgnet.py           # Step 13: Train SGNet baseline
-│   ├── eval_mesh_quality.py     # Eval: F-score & Hausdorff
-│   ├── eval_baselines_extended.py  # Eval: Extended baseline comparison
-│   └── eval_dornet_zeroshot.py  # Eval: DORNet zero-shot test
-│
-├── notebooks/                   # Interactive experiments
-│   ├── 01_depth_upres_pipeline.ipynb  # Main training pipeline
-│   ├── 02_baselines.ipynb       # Baseline training (SwinIR/SGNet/DORNet)
-│   ├── 03_degradation_ablation.ipynb  # 5×5 cross-degradation test
-│   ├── 04_view_splats.ipynb     # Visualize 3DGS splats
-│   └── paper_figures_final.ipynb  # All paper figures (complete walkthrough)
-│
-├── configs/
-│   └── pipeline_config.yaml     # Central configuration
-│
-├── eval/                        # Evaluation results (CSV/JSON)
-│   ├── baseline_full_table.csv  # All baselines comparison
-│   ├── degradation_crosstest_PSNR.csv  # 5×5 cross-test matrix
-│   ├── mesh_quality.csv         # F-score & Hausdorff per method
-│   ├── multimetric_zoneaware.csv  # Zone-aware metrics
-│   └── ...
-│
-├── figures/                     # Paper figures (generated by paper_figures_final.ipynb)
-│   ├── fig00_pipeline_flowchart.png
-│   ├── fig01_original_vs_whitebg.png
-│   ├── ...
-│   └── fig19_params_vs_quality.png
-│
-├── paper/                       # LaTeX paper source
-│   ├── main.tex
-│   ├── references.bib
-│   └── figures/
-│
-└── requirements.txt
-```
-
-## Model Architecture
-
-**DepthUpResUNet** (7.77M params, base_ch=32):
-- Bicubic pre-upsample LR → 1024
-- UNet predicts bounded residual: `out = (bicubic + tanh(unet_out) × 0.5).clamp(0,1)`
-- Loss: mask-aware L1 + 0.5 × gradient loss (+ optional 0.2 × cosine normal loss with DSINE)
-
-## Results
-
-| Method | Params | PSNR (dB) | Val L1 | F-score @1e-3 |
-|--------|--------|-----------|--------|----------------|
-| Bicubic | — | 42.5 | — | 0.998 |
-| SwinIR-tiny | 0.23M | 11.95 | 0.044 | — |
-| EDSR | 1.52M | 46.8 | — | 0.637 |
-| SRResNet | 1.53M | 47.3 | — | 0.647 |
-| SGNet | 9.22M | 48.9 | — | 0.654 |
-| **UNet (ours)** | 7.77M | 47.0 | 0.00228 | **0.999** |
-| **UNet+DSINE** | 7.78M | 47.2 | — | **0.999** |
-
-## Environment
+## How to run
 
 ```bash
-# Python 3.10+, PyTorch 2.4+, CUDA 12.x
 pip install -r requirements.txt
 
-# Training (RTX 4070 8GB VRAM safe)
+# Train the main model (~2h on RTX 4070)
 python scripts/train_depth_upres.py --batch_size 2 --grad_accum 4 --epochs 100 --amp
 ```
 
-## Data (not included)
+The pipeline scripts in `scripts/` are meant to be run in order. See `run_pipeline.py` for the full sequence. There's a manual step (FaceLift rendering in `FaceLift/01_render_improve.ipynb`) between steps 4 and 7.
 
-- `data/` — FFHQ crops, 3DGS renders, postprocessed maps, dataset splits
-- `checkpoints/` — Trained model weights
+## Project structure
 
-These directories are generated by running the pipeline scripts in order (01→17).
+```
+scripts/           All pipeline + training + eval scripts
+notebooks/         Jupyter notebooks (training, baselines, ablations, figures)
+FaceLift/          FaceLift 3DGS code (upstream, not modified by me)
+external/SGNet/    SGNet baseline (AAAI 2024)
+eval/              CSV results for all tables in the report
+configs/           Pipeline config
+paper/             LaTeX source
+figures/           Generated paper figures
+```
+
+Key scripts:
+- `train_depth_upres.py` — main model training (DepthUpResUNet, 7.77M params)
+- `train_sgnet.py` — SGNet baseline training
+- `eval_mesh_quality.py` — F-score and Hausdorff evaluation
+- `postprocess_maps.py` — depth normalization, hole filling, normal smoothing
+
+## Results
+
+| Method | Params | PSNR (dB) | F-score @1e-3 |
+|--------|--------|-----------|---------------|
+| Bicubic | — | 42.5 | 0.998 |
+| EDSR | 1.52M | 46.8 | 0.637 |
+| SRResNet | 1.53M | 47.3 | 0.647 |
+| SGNet | 9.22M | 48.9 | 0.654 |
+| UNet (ours) | 7.77M | 47.0 | 0.999 |
+| UNet+DSINE | 7.78M | 47.2 | 0.999 |
+
+SwinIR-tiny (0.23M) collapsed entirely (PSNR 11.95 dB) — it can't learn this task without a bicubic residual prior.
+
+## Data
+
+`data/` and `checkpoints/` are not included (too large). They're generated by running the pipeline scripts from step 1.
+
+## Hardware
+
+All experiments ran on a single RTX 4070 Laptop 8 GB. AMP FP16 is required — without it the model doesn't fit in VRAM. 13 complete training runs, ~62 GPU-hours total.
