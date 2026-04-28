@@ -1,0 +1,74 @@
+# ============================================================
+# FaceLift Pipeline - Central Configuration
+# ============================================================
+
+# --- Paths ---
+paths:
+  facelift_repo: "./FaceLift"                    # FaceLift repo clone path
+  dataset_raw: "./data/raw_faces"                # Raw 2D face image directory
+  dataset_cropped: "./data/cropped_faces"        # Preprocessed image directory
+  splat_output: "./data/splats"                  # 3D Gaussian Splat output directory
+  depth_output: "./data/depth_maps"              # Depth map output directory
+  normal_output: "./data/normal_maps"            # Normal map output
+  opacity_output: "./data/opacity_maps"          # Opacity map output
+  rgb_output: "./data/rgb_rendered"              # Rendered RGB output directory
+  paired_dataset: "./data/paired_dataset"        # Final paired dataset (RGB + Depth)
+  checkpoints: "./FaceLift/checkpoints"          # Model weights directory
+  logs: "./logs"                                 # Log directory
+
+# --- Kaggle Dataset ---
+kaggle:
+  dataset_slug: "ashwingupta3012/human-faces"    # Kaggle dataset identifier
+  download_dir: "./data/raw_faces"
+  max_images: null                               # null = download all; integer = limit
+
+# --- Image Preprocessing ---
+preprocessing:
+  target_size: 1024                              # Target image size (square)
+  auto_crop: true                                # Auto-detect and crop face
+  face_detection_confidence: 0.8                 # Face detection confidence threshold
+  padding_ratio: 0.3                             # Padding ratio around face crop
+  supported_formats: [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
+
+# --- FaceLift Inference ---
+inference:
+  seed: 4
+  guidance_scale_2D: 3.0                         # Multi-view generation guidance scale
+  step_2D: 50                                    # Diffusion iteration steps
+  batch_size: 1                                  # Images per batch (GPU memory limited)
+  device: "cuda"                                 # "cuda" or "cpu"
+  num_workers: 0                                 # Must be 0 on Windows to avoid subprocess crash
+  save_multiview: true                           # Save multi-view intermediate results
+  save_turntable: false                          # Save turntable video
+
+# --- Depth Map Export ---
+# Parameters aligned with FaceLift rendering settings (see FaceLift/gslrm/model/gaussians_renderer.py)
+depth_export:
+  render_resolution: 1024                        # Depth map render resolution (1024 for SR task)
+  num_views: 1                                   # Views per model (1 = frontal only)
+  depth_format: "png"                            # Depth format: "png", "npy", "exr"
+  depth_colormap: "viridis"                      # Depth visualization colormap
+  normalize_depth: true                          # Normalize depth values to [0, 1]
+  near_plane: 0.01                               # FaceLift znear=0.01
+  far_plane: 100.0                               # FaceLift zfar=100.0
+  camera_distance: 2.7                           # FaceLift default radius
+  fov: 50.0                                      # FaceLift default hfov
+
+# --- Dataset Build ---
+dataset:
+  train_ratio: 0.8                               # Training set ratio
+  val_ratio: 0.1                                 # Validation set ratio
+  test_ratio: 0.1                                # Test set ratio
+  random_seed: 42
+  manifest_format: "json"                        # "json" or "csv"
+  include_metadata: true                         # Include metadata in manifest
+
+# --- Logging ---
+logging:
+  level: "INFO"
+  format: "rich"
+  log_to_file: true
+
+# --- GPU ---
+gpu:
+  memory_fraction: 0.9                           # Max GPU memory usage fraction

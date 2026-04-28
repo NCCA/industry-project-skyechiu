@@ -1,0 +1,10 @@
+{
+  "method": "DORNet_zeroshot_NYU",
+  "checkpoint": "external\\DORNet\\checkpoints\\NYU_X4.pth",
+  "resolution": 1024,
+  "n_samples": 129,
+  "val_l1": 0.003367991276922845,
+  "val_mse": 6.115472198039489e-05,
+  "val_psnr": 42.135699967615324,
+  "time_s": 121.86797857284546
+}

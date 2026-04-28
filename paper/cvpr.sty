@@ -1,0 +1,141 @@
+% CVPR Workshop paper style - simplified from official cvpr.sty
+\NeedsTeXFormat{LaTeX2e}[1999/12/01]
+\ProvidesPackage{cvpr}[2025 LaTeX class for CVPR Workshop]
+
+\RequirePackage{times}
+\RequirePackage{xspace}
+\RequirePackage[dvipsnames]{xcolor}
+\RequirePackage{graphicx}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{booktabs}
+\RequirePackage[numbers,sort&compress]{natbib}
+\setlength{\bibsep}{1pt plus 1pt minus 1pt}
+
+\RequirePackage{silence}
+\hbadness=10000 \vbadness=10000 \vfuzz=30pt \hfuzz=30pt
+\WarningFilter{latexfont}{Font shape declaration}
+\WarningFilter{latex}{Font shape}
+
+\RequirePackage[format=plain,labelformat=simple,labelsep=period,font=small,compatibility=false]{caption}
+\RequirePackage[font=footnotesize,skip=3pt,subrefformat=parens]{subcaption}
+
+\newtoggle{cvprfinal}
+\newtoggle{cvprrebuttal}
+\newtoggle{cvprpagenumbers}
+\togglefalse{cvprfinal}
+\togglefalse{cvprrebuttal}
+\toggletrue{cvprpagenumbers}
+\DeclareOption{review}{\togglefalse{cvprfinal}\toggletrue{cvprpagenumbers}}
+\DeclareOption{final}{\toggletrue{cvprfinal}}
+\DeclareOption{rebuttal}{\togglefalse{cvprfinal}\toggletrue{cvprrebuttal}}
+\DeclareOption{pagenumbers}{\toggletrue{cvprpagenumbers}}
+\DeclareOption*{\PackageWarning{cvpr}{Unknown option `\CurrentOption'}}
+\ProcessOptions\relax
+
+\RequirePackage[hyphens]{url}
+\RequirePackage{etoolbox}
+
+\typeout{CVPR 8.5 x 11-Inch Proceedings Style `cvpr.sty'.}
+
+\font\cvprtenhv  = phvb at 8pt
+\font\elvbf  = ptmb scaled 1100
+\font\tenbf  = ptmb scaled 1000
+
+\setlength{\textheight}{8.875in}
+\setlength{\textwidth}{6.875in}
+\setlength{\columnsep}{0.3125in}
+\setlength{\topmargin}{0in}
+\setlength{\headheight}{0in}
+\setlength{\headsep}{0in}
+\setlength{\parindent}{1pc}
+\setlength{\oddsidemargin}{-0.1875in}
+\setlength{\evensidemargin}{-0.1875in}
+
+\iftoggle{cvprpagenumbers}{}{\pagestyle{empty}}
+
+\def\@maketitle{
+   \newpage
+   \null
+   \vskip .375in
+   \begin{center}
+      {\Large \bf \@title \par}
+      \vspace*{24pt}{
+        \large
+        \lineskip .5em
+        \begin{tabular}[t]{c}
+          \iftoggle{cvprfinal}{
+            \@author
+          }{
+            Anonymous CVPR Workshop submission\\
+            \vspace*{1pt}\\
+            Paper ID \cvprPaperID
+          }
+        \end{tabular}
+        \par
+      }
+      \vskip .5em
+      \vspace*{12pt}
+   \end{center}
+}
+
+\def\abstract{%
+   \iftoggle{cvprpagenumbers}{}{\thispagestyle{empty}}
+   \centerline{\large\bf Abstract}%
+   \vspace*{12pt}\noindent%
+   \it\ignorespaces%
+}
+\def\endabstract{\vspace*{12pt}}
+
+\def\cvprsection{\@startsection {section}{1}{\z@}
+   {-10pt plus -2pt minus -2pt}{7pt} {\large\bf}}
+\def\cvprssect#1{\cvprsection*{#1}}
+\def\cvprsect#1{\cvprsection{\texorpdfstring{\hskip -1em.~}{}#1}}
+\def\section{\@ifstar\cvprssect\cvprsect}
+
+\def\cvprsubsection{\@startsection {subsection}{2}{\z@}
+   {-8pt plus -2pt minus -2pt}{5pt} {\elvbf}}
+\def\cvprssubsect#1{\cvprsubsection*{#1}}
+\def\cvprsubsect#1{\cvprsubsection{\texorpdfstring{\hskip -1em.~}{}#1}}
+\def\subsection{\@ifstar\cvprssubsect\cvprsubsect}
+
+\def\cvprsubsubsection{\@startsection {subsubsection}{3}{\z@}
+   {-6pt plus -2pt minus -2pt}{3pt} {\tenbf}}
+\def\cvprssubsubsect#1{\cvprsubsubsection*{#1}}
+\def\cvprsubsubsect#1{\cvprsubsubsection{\texorpdfstring{\hskip -1em.~}{}#1}}
+\def\subsubsection{\@ifstar\cvprssubsubsect\cvprsubsubsect}
+
+\renewcommand{\textfraction}{0.01}
+\renewcommand{\floatpagefraction}{0.99}
+\renewcommand{\topfraction}{0.99}
+\renewcommand{\bottomfraction}{0.99}
+\renewcommand{\dblfloatpagefraction}{0.99}
+\renewcommand{\dbltopfraction}{0.99}
+\setcounter{totalnumber}{99}
+\setcounter{topnumber}{99}
+\setcounter{bottomnumber}{99}
+
+\makeatletter
+\DeclareRobustCommand\onedot{\futurelet\@let@token\@onedot}
+\def\@onedot{\ifx\@let@token.\else.\null\fi\xspace}
+\def\eg{\emph{e.g}\onedot} \def\Eg{\emph{E.g}\onedot}
+\def\ie{\emph{i.e}\onedot} \def\Ie{\emph{I.e}\onedot}
+\def\cf{\emph{cf}\onedot} \def\Cf{\emph{Cf}\onedot}
+\def\etc{\emph{etc}\onedot} \def\vs{\emph{vs}\onedot}
+\def\wrt{w.r.t\onedot} \def\dof{d.o.f\onedot}
+\def\etal{\emph{et al}\onedot}
+\makeatother
+
+\newcommand{\cvprPaperID}{****}
+
+\AtEndPreamble{
+    \usepackage[capitalize]{cleveref}
+    \crefname{section}{Sec.}{Secs.}
+    \Crefname{section}{Section}{Sections}
+    \Crefname{table}{Table}{Tables}
+    \crefname{table}{Tab.}{Tabs.}
+}
+
+\RequirePackage[shortlabels,inline]{enumitem}
+\setlist[itemize]{noitemsep,leftmargin=*,topsep=0em}
+\setlist[enumerate]{noitemsep,leftmargin=*,topsep=0em}
