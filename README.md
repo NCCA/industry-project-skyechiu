@@ -4,6 +4,10 @@ This is my MSc industry project. The goal is to take low-quality depth maps (256
 
 I built the full pipeline from scratch: data collection, FaceLift inference, postprocessing, training, and evaluation. Everything runs on a single RTX 4070 Laptop (8 GB VRAM).
 
+## Project Walkthrough Video
+
+[11-minute voiceover walkthrough of the implementation](你的视频链接)
+
 ## What I found
 
 The main finding is that 3DGS rendering degradation is different from the standard bicubic degradation that existing SR benchmarks assume. A 5×5 cross-degradation test shows up to 5.7 dB PSNR drop when you train on one type and test on the other. DORNet (CVPR 2025 SOTA) trained on NYU barely beats plain bicubic on our data.
