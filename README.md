@@ -6,7 +6,7 @@ I built the full pipeline from scratch: data collection, FaceLift inference, pos
 
 ## Project Walkthrough Video
 
-[11-minute voiceover walkthrough of the implementation](你的视频链接)
+[11-minute voiceover walkthrough of the implementation](https://youtu.be/s_YnRy5D_7g)
 
 ## What I found
 
