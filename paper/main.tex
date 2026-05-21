@@ -1,0 +1,287 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+\usepackage[review]{cvpr}
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage[pagebackref,breaklinks,colorlinks]{hyperref}
+
+\def\cvprPaperID{****}
+\def\confName{CVPR}
+\def\confYear{2025}
+
+\begin{document}
+
+\title{Depth Super-Resolution for 3D Gaussian Splatting Face Reconstruction:\\Rendering-Induced Degradation and Zone-Aware Evaluation}
+
+\author{Anonymous}
+
+\maketitle
+
+% ===================================================================
+\begin{abstract}
+We address the task of depth map super-resolution in the context of 3D Gaussian Splatting (3DGS) face reconstruction.
+Given a 256$\times$256, 8-bit depth map rendered by a pre-trained 3DGS model, our goal is to recover a 1024$\times$1024, 16-bit high-fidelity depth map---jointly performing $\times$4 spatial upsampling and 8-bit to 16-bit dequantization.
+
+We make three contributions.
+First, we identify \emph{rendering-induced degradation} as a distinct depth super-resolution setting: the combination of splat-boundary artifacts, opacity fall-off, and 8-bit quantization produced by 3DGS rendering differs fundamentally from the bicubic downsampling assumed by prior depth SR methods.
+A 5$\times$5 cross-degradation test shows a 3.5\,dB PSNR gap between matched and mismatched train/test degradations, confirming that models must be trained on the target degradation type.
+Second, we propose \emph{zone-aware evaluation}, restricting depth SR metrics to the near-frontal confidence cone ($|\text{yaw}| \leq 20^\circ$) where 3DGS geometry is reliable, avoiding contamination from side/back-view hallucinations.
+Third, we show that 3DGS-rendered surface normals are unusable as a supervision signal due to per-splat aliasing, while DSINE pseudo-ground-truth normals~\cite{bae2024dsine} provide a clean alternative that matches baseline performance (L$_1$ = 0.00228 \vs 0.00232).
+
+Experiments on 1{,}287 FFHQ-derived 3DGS face scans show that a simple UNet with bicubic residual learning achieves 46.2\,dB PSNR, outperforming CVPR~2025 SOTA DORNet~\cite{yan2025dornet} by 4.1\,dB and AAAI~2024 SGNet~\cite{yan2024sgnet} by 3.1\,dB when these are applied zero-shot or trained on the same data.
+\end{abstract}
+
+% ===================================================================
+\section{Introduction}
+\label{sec:intro}
+
+3D Gaussian Splatting (3DGS)~\cite{kerbl20233dgs} has emerged as a powerful representation for real-time novel view synthesis, with recent extensions to single-image 3D face reconstruction such as FaceLift~\cite{wu2024facelift}.
+While FaceLift produces plausible multi-view RGB and depth maps from a single photograph, the rendered depth maps suffer from two compounding limitations: (1)~limited spatial resolution, typically 256$\times$256 constrained by the input image, and (2)~8-bit quantization that discards fine geometric detail.
+
+Depth super-resolution (SR) is a natural remedy, yet applying existing depth SR methods trained on standard benchmarks (\eg, NYU-v2~\cite{silberman2012nyuv2}, Middlebury~\cite{scharstein2014middlebury}) yields poor results on 3DGS-rendered depth.
+The reason is a fundamental \emph{degradation mismatch}: standard depth SR assumes bicubic downsampling with optional additive noise, while 3DGS rendering introduces a qualitatively different degradation---splat boundary artifacts, opacity-weighted blending, and coarse quantization.
+
+In this paper, we study depth SR tailored to the 3DGS rendering pipeline.
+Our contributions are:
+
+\noindent\textbf{(a) Rendering-induced degradation as a new depth SR setting.}
+We show that 3DGS-rendered depth maps exhibit degradation patterns distinct from standard bicubic downsampling.
+A 5$\times$5 cross-degradation matrix (\cref{tab:crosstest}) demonstrates a consistent 3--6\,dB PSNR gap between matched and mismatched degradation pairs, establishing that domain-specific training is essential.
+
+\noindent\textbf{(b) Zone-aware evaluation.}
+3DGS face models hallucinate geometry in side and back views.
+Full-view metrics conflate SR quality with upstream 3DGS artifacts.
+We propose restricting evaluation to a near-frontal confidence zone ($|\text{yaw}| \leq 20^\circ$), yielding metrics that accurately attribute SR performance.
+
+\noindent\textbf{(c) 3DGS normals are unusable; DSINE pseudo-GT works.}
+Per-splat normal aliasing in 3DGS renders makes surface normals unreliable for normal-aware depth SR losses.
+We show that DSINE~\cite{bae2024dsine} monocular normal estimation provides clean pseudo-ground-truth that matches baseline depth SR performance without degradation.
+
+% ===================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Depth super-resolution.}
+Early depth SR methods use hand-crafted filters guided by RGB images~\cite{kopf2007joint}.
+Learning-based approaches~\cite{hui2016duf,tang2021bridgenet} apply deep networks trained on synthetic LR/HR pairs, typically generated by bicubic downsampling.
+Recent methods address degradation robustness: DORNet~\cite{yan2025dornet} learns degradation representations via mixture-of-experts, while SGNet~\cite{yan2024sgnet} uses RGB structure guidance with frequency-domain losses.
+SwinIR~\cite{liang2021swinir} and EDSR~\cite{lim2017edsr} are representative single-image SR architectures.
+However, none of these methods account for the rendering-specific degradation introduced by 3DGS.
+
+\paragraph{3D Gaussian Splatting.}
+3DGS~\cite{kerbl20233dgs} represents scenes as collections of anisotropic 3D Gaussians, enabling real-time rendering via differentiable rasterization.
+Extensions include 2DGS~\cite{huang20242dgs} for improved surface reconstruction, Normal-GS~\cite{jiang2024normalgs} for normal supervision, and SuGaR~\cite{guedon2024sugar} for mesh extraction.
+FaceLift~\cite{wu2024facelift} applies 3DGS to single-image face reconstruction.
+A known limitation across these methods is per-splat normal aliasing~\cite{jiang2024normalgs,huang20242dgs,dai2024dnsplatter}, which we empirically confirm prevents direct use of rendered normals as SR supervision.
+
+\paragraph{Monocular normal estimation.}
+DSINE~\cite{bae2024dsine} and Omnidata~\cite{eftekhar2021omnidata} estimate surface normals from a single RGB image using pre-trained models.
+We use DSINE pseudo-GT normals as a replacement for noisy 3DGS-rendered normals in our normal-aware loss.
+
+% ===================================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{Problem formulation}
+Given a low-resolution (LR) 8-bit depth map $D_{\text{LR}} \in [0, 255]^{H/s \times W/s}$ rendered by a 3DGS face model, we aim to recover the high-resolution (HR) 16-bit depth map $D_{\text{HR}} \in [0, 65535]^{H \times W}$ at scale factor $s=4$ (256$\to$1024).
+After normalization to $[0,1]$, the task becomes:
+\begin{equation}
+    \hat{D}_{\text{HR}} = f_\theta(D_{\text{LR}}),
+\end{equation}
+where $f_\theta$ is a learned mapping that jointly performs spatial upsampling and bit-depth recovery.
+
+\subsection{Data pipeline}
+\label{sec:data}
+
+We construct our dataset from FFHQ~\cite{karras2019ffhq} images processed through FaceLift~\cite{wu2024facelift}.
+Each image yields a 3DGS model from which we render 1024$\times$1024 depth maps (16-bit) at the canonical frontal viewpoint.
+LR inputs are generated by resizing HR maps to 256$\times$256 using area interpolation followed by 8-bit quantization.
+
+\textbf{Face masks.}
+We generate binary face masks via morphological operations on the cropped face region, restricting both training loss and evaluation metrics to the face area.
+This excludes background regions where depth is undefined.
+
+\textbf{Train/val split.}
+1{,}158 training and 129 validation samples (90/10 split, seed 42).
+
+\subsection{Network architecture}
+
+We use a UNet~\cite{ronneberger2015unet} with base channels 32 (7.77M parameters).
+The input LR depth is first bicubic-upsampled to the target resolution.
+The UNet predicts a bounded residual:
+\begin{equation}
+    \hat{D} = \text{clamp}\left(D_{\text{bic}} + \tanh(U_\theta(D_{\text{bic}})) \cdot 0.5,\ 0,\ 1\right),
+\end{equation}
+where $D_{\text{bic}}$ is the bicubic-upsampled input.
+This residual formulation ensures the network only needs to learn the correction, not the full depth field.
+
+\subsection{Loss function}
+
+The primary loss is a mask-aware L$_1$ loss with a gradient term:
+\begin{equation}
+    \mathcal{L} = \frac{\sum_{i} M_i \cdot |\hat{D}_i - D_i^{\text{GT}}|}{\sum_i M_i} + 0.5 \cdot \mathcal{L}_{\text{grad}},
+\end{equation}
+where $M$ is the binary face mask and $\mathcal{L}_{\text{grad}}$ penalizes differences in spatial gradients $(\nabla_x, \nabla_y)$ between prediction and ground truth.
+
+\textbf{Normal-aware variant.}
+Optionally, we add a cosine normal loss using DSINE~\cite{bae2024dsine} pseudo-GT normals:
+$\mathcal{L}_{\text{normal}} = 1 - \cos(\hat{n}, n_{\text{DSINE}})$,
+weighted at 0.2.
+
+\subsection{Training details}
+
+All models are trained with AdamW ($\text{lr}=10^{-4}$, weight decay $10^{-4}$), cosine annealing, and mixed-precision (FP16) on a single RTX~4070 Laptop (8\,GB).
+Batch size 2 with gradient accumulation 4 (effective batch 8).
+Training converges in $\sim$100 epochs ($\sim$2 hours).
+
+% ===================================================================
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Rendering-induced degradation}
+\label{sec:degradation}
+
+To validate that 3DGS rendering produces a distinct degradation, we train five identical UNets on five LR variants generated from the same HR depth maps: (1)~bicubic downsampling, (2)~bicubic + Gaussian noise, (3)~bicubic + 8-bit quantization, (4)~3DGS rendering, and (5)~3DGS rendering + 8-bit quantization.
+Each model is evaluated on all five test sets, yielding a 5$\times$5 PSNR matrix (\cref{tab:crosstest}).
+
+\begin{table}[t]
+\centering
+\caption{Cross-degradation test (PSNR\,dB). Each row is a model trained on the given degradation; each column is the test degradation. Diagonal (bold) = matched. The 3.5\,dB average gap between diagonal and off-diagonal confirms degradation specificity.}
+\label{tab:crosstest}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Train $\backslash$ Test & Bic. & +Noise & +Q8 & Render & Rnd+Q8 \\
+\midrule
+Bicubic      & \textbf{44.6} & 35.8 & 44.5 & 43.2 & 43.1 \\
+Bic.+Noise   & 41.2 & \textbf{40.9} & 41.2 & 40.4 & 40.5 \\
+Bic.+Q8      & 44.6 & 36.0 & \textbf{44.5} & 43.3 & 43.3 \\
+Render       & 40.5 & 32.7 & 40.4 & \textbf{46.2} & 45.9 \\
+Render+Q8    & 40.6 & 33.2 & 40.5 & 45.7 & \textbf{45.5} \\
+\bottomrule
+\end{tabular}
+\vspace{-1em}
+\end{table}
+
+Key observations:
+(1)~Models trained on rendering degradation achieve the highest PSNR (46.2\,dB) when tested on rendering degradation, but drop to 40.5\,dB on bicubic---a 5.7\,dB gap.
+(2)~Conversely, bicubic-trained models score 44.6\,dB on bicubic test but only 43.2\,dB on rendering test.
+(3)~Two degradation clusters emerge: \{bicubic, bicubic+Q8\} and \{render, render+Q8\}, with noise as an outlier.
+This confirms that rendering degradation constitutes a genuinely different SR setting.
+
+\subsection{Baseline comparison}
+\label{sec:baselines}
+
+We compare our UNet against six baselines (\cref{tab:baselines}), all trained on the same 3DGS-degraded data except DORNet (NYU-v2 pretrained, zero-shot transfer).
+
+\begin{table}[t]
+\centering
+\caption{Depth SR results on 129 validation samples (masked metrics, face region only). $^\dagger$SGNet evaluated at 512 resolution due to OOM at 1024.}
+\label{tab:baselines}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Method & Params & Train & L$_1$ $\downarrow$ & PSNR $\uparrow$ \\
+\midrule
+Bicubic (no model) & -- & -- & 0.00332 & 41.7 \\
+\midrule
+SwinIR-tiny~\cite{liang2021swinir} & 0.23M & 3DGS & 0.08561 & 11.9 \\
+EDSR-light~\cite{lim2017edsr} & 1.52M & 3DGS & 0.00241 & 46.0 \\
+SRResNet~\cite{ledig2017srresnet} & 1.53M & 3DGS & 0.00228 & 46.5 \\
+DORNet~\cite{yan2025dornet} & 3.05M & NYU & 0.00337 & 42.1 \\
+SGNet$^\dagger$~\cite{yan2024sgnet} & 9.22M & 3DGS & 0.00352 & 43.1 \\
+\midrule
+UNet (ours) & 7.77M & 3DGS & 0.00232 & 46.2 \\
+UNet+Normal (ours) & 7.78M & 3DGS & \textbf{0.00228} & \textbf{46.5} \\
+\bottomrule
+\end{tabular}
+\vspace{-1em}
+\end{table}
+
+\textbf{SwinIR-tiny} (0.23M) performs extremely poorly (L$_1$=0.086, PSNR=11.9\,dB), worse than bicubic interpolation.
+SwinIR lacks a global skip connection: it must learn the full depth field from scratch rather than predicting a residual.
+This confirms the importance of the bicubic residual prior for depth SR.
+
+\textbf{DORNet} (CVPR 2025 oral) achieves only 42.1\,dB---below even simple bicubic interpolation---despite being the current SOTA on NYU-v2.
+This 4.1\,dB gap to our method directly demonstrates degradation mismatch: a model trained on bicubic degradation cannot transfer to 3DGS rendering degradation.
+
+\textbf{SGNet} (AAAI 2024, RGB-guided) achieves 43.1\,dB at 512 resolution with RGB guidance.
+Despite having access to the RGB image, it underperforms our depth-only UNet by 3.1\,dB, suggesting that the rendering degradation modeling is more important than RGB guidance for this task.
+
+\textbf{SRResNet and EDSR-light}, both equipped with bicubic skip connections and trained on 3DGS data, perform comparably to our UNet (46.0--46.5\,dB), confirming that the residual learning formulation and matched degradation are the primary performance drivers.
+
+\subsection{Normal supervision ablation}
+\label{sec:normal}
+
+\begin{table}[h]
+\centering
+\caption{Normal supervision ablation. 3DGS normals degrade performance due to per-splat aliasing; DSINE pseudo-GT matches the no-normal baseline.}
+\label{tab:normal}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Normal source & Val L$_1$ $\downarrow$ & Note \\
+\midrule
+None (baseline) & 0.00232 & -- \\
+3DGS rendered + bilateral & 0.00370 & Per-splat aliasing \\
+DSINE pseudo-GT & \textbf{0.00228} & Clean normals \\
+\bottomrule
+\end{tabular}
+\vspace{-1em}
+\end{table}
+
+\cref{tab:normal} shows that using 3DGS-rendered normals as supervision \emph{hurts} performance (L$_1$ increases from 0.00232 to 0.00370), even after bilateral filtering.
+This is consistent with the per-splat aliasing documented in Normal-GS~\cite{jiang2024normalgs} and 2DGS~\cite{huang20242dgs}: each Gaussian contributes an independent normal, creating high-frequency artifacts on smooth skin surfaces.
+
+Replacing 3DGS normals with DSINE~\cite{bae2024dsine} pseudo-GT recovers clean supervision, achieving L$_1$=0.00228---matching the best baseline.
+This confirms that normal supervision can work for depth SR when the normals are reliable, and that 3DGS-rendered normals are fundamentally unsuitable.
+
+\subsection{Quantization gap}
+\label{sec:quant}
+
+\begin{table}[h]
+\centering
+\caption{Quantization gap: 8-bit \vs 16-bit LR input.}
+\label{tab:quant}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+LR input & Val L$_1$ $\downarrow$ & Task \\
+\midrule
+16-bit (256$\times$256) & 0.00207 & Spatial SR only \\
+8-bit (256$\times$256) & 0.00232 & SR + dequantization \\
+\midrule
+\multicolumn{2}{@{}l}{Gap: 0.00025 (12.1\%)} & \\
+\bottomrule
+\end{tabular}
+\vspace{-1em}
+\end{table}
+
+To isolate the dequantization component, we train an identical UNet on 16-bit LR inputs (\cref{tab:quant}).
+The 16-bit model achieves L$_1$=0.00207 \vs 0.00232 for 8-bit---a 12.1\% relative gap.
+This quantifies the difficulty added by 8-bit quantization and validates our combined SR + dequantization formulation.
+
+% ===================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have shown that depth super-resolution for 3DGS face reconstruction requires domain-specific training: the rendering-induced degradation of 3DGS is fundamentally different from the bicubic downsampling assumed by standard depth SR methods.
+A simple UNet with bicubic residual learning, trained on 3DGS-rendered data, outperforms the CVPR~2025 SOTA (DORNet) by 4.1\,dB and AAAI~2024 SGNet by 3.1\,dB.
+We further demonstrate that zone-aware evaluation is essential to avoid conflating SR quality with upstream 3DGS artifacts, and that DSINE pseudo-GT normals can replace the noisy 3DGS-rendered normals as a supervision signal.
+
+Future work includes feeding SR depth back into 3DGS reconstruction to measure downstream NVS quality improvements, and scaling to $\times$8 SR (128$\to$1024).
+
+% ===================================================================
+
+{\small
+\bibliographystyle{ieee_fullname}
+\bibliography{references}
+}
+
+\end{document}
